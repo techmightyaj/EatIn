@@ -23,7 +23,9 @@ data class Variation(
     @Expose var inStock: Int,
     @Expose var isVeg: Int,
     @Expose var name: String,
-    @Expose var price: Int
+    @Expose var price: Int,
+    var isChecked:Boolean,
+    var isExcluded:Boolean
 )
 
 data class ExcludeList(

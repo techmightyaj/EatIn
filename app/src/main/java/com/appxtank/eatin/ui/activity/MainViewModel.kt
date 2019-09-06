@@ -5,6 +5,7 @@ import androidx.lifecycle.MutableLiveData
 import com.appxtank.eatin.data.local.DatabaseService
 import com.appxtank.eatin.data.remote.NetworkService
 import com.appxtank.eatin.data.remote.response.MenuResponse
+import com.appxtank.eatin.data.remote.response.Variation
 import com.appxtank.eatin.di.ActivityScope
 import io.reactivex.disposables.CompositeDisposable
 import io.reactivex.schedulers.Schedulers
@@ -22,6 +23,8 @@ class MainViewModel @Inject constructor(
     }
 
     val menuResponse = MutableLiveData<MenuResponse>()
+    var selectedVariants = 0
+    var selectedVariation: Variation? = null
 
     fun getMenu() {
         compositeDisposable.add(
@@ -37,4 +40,12 @@ class MainViewModel @Inject constructor(
                 )
         )
     }
+
+//    fun parseMenuItems(menuResponse: MenuResponse){
+//        var map = LinkedHashMap<VariantGroup, List<Variation>>()
+//        for(i in menuResponse.variants.variant_groups.indices)
+//            map[menuResponse.variants.variant_groups[i]] = menuResponse.variants.variant_groups[i].variations
+//
+//        parsedMenuItems.postValue(map)
+//    }
 }

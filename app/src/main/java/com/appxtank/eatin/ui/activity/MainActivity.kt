@@ -1,31 +1,39 @@
 package com.appxtank.eatin.ui.activity
 
 
-import android.graphics.Paint.STRIKE_THRU_TEXT_FLAG
-import android.graphics.Typeface
 import android.os.Bundle
-import android.widget.*
+import android.view.View
+import android.widget.Button
+import android.widget.Switch
+import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Observer
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.appxtank.eatin.MyApplication
 import com.appxtank.eatin.R
 import com.appxtank.eatin.data.remote.response.ExcludeList
+import com.appxtank.eatin.data.remote.response.MenuResponse
 import com.appxtank.eatin.data.remote.response.Variation
 import com.appxtank.eatin.di.ActivityModule
 import com.appxtank.eatin.di.component.DaggerActivityComponent
-import com.appxtank.eatin.utils.AppConstants
-import com.google.common.collect.HashMultimap
+import com.appxtank.eatin.ui.adapter.MenuItemAdapter
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.android.synthetic.main.activity_main.*
 import javax.inject.Inject
 
 
 class MainActivity : AppCompatActivity() {
 
     private val TAG: String = MainActivity::class.java.simpleName
-    private lateinit var linearLayout: LinearLayout
     private lateinit var vegSwitch: Switch
-    private var excludedList: HashMultimap<Int, Int> = HashMultimap.create()
+    private lateinit var menuItemTitle: TextView
+    private lateinit var menuItemChangeButton: Button
+    private lateinit var menuItemProceedButton: Button
+    private lateinit var menuItemsRecyclerView: RecyclerView
+    private lateinit var menuItemAdapter: MenuItemAdapter
 
     @Inject
     lateinit var viewModel: MainViewModel
@@ -35,43 +43,134 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        linearLayout = findViewById(R.id.linear_layout)
-        vegSwitch = findViewById(R.id.switch1)
-
-
+        init()
+        setUpRecyclerView(vegSwitch.isChecked)
         observeData()
-        viewModel.getMenu()
+        fetchData()
+        switchClick()
+        proceedClick()
+    }
 
-        vegSwitch.setOnCheckedChangeListener { buttonView, isChecked ->
-            viewModel.getMenu()
-            linearLayout.removeAllViews()
+    private fun init() {
+        vegSwitch = findViewById(R.id.switch_veg)
+        menuItemTitle = findViewById(R.id.tv_menu_item_header)
+        menuItemsRecyclerView = findViewById(R.id.rv_menu_item)
+        menuItemProceedButton = findViewById(R.id.btn_proceed)
+        menuItemChangeButton = findViewById(R.id.btn_change)
+    }
+
+    private fun setUpRecyclerView(isOnlyVeg: Boolean) {
+        menuItemAdapter = MenuItemAdapter(this, isOnlyVeg)
+        menuItemsRecyclerView.apply {
+            layoutManager = LinearLayoutManager(context)
+            adapter = menuItemAdapter
+            setHasFixedSize(true)
         }
     }
 
     private fun observeData() {
         viewModel.menuResponse.observe(this, Observer { menuResponse ->
-            val numberOfGroups = menuResponse.variants.variant_groups.size
-            createExcludeList(menuResponse.variants.exclude_list)
-            for (i in 0 until numberOfGroups) {
-                val tv = TextView(this)
-                tv.text = menuResponse.variants.variant_groups[i].name
-                tv.textSize = resources.getDimension(R.dimen.group_title_text_size)
-                tv.typeface = Typeface.DEFAULT_BOLD
-                if (AppConstants.radio_group_id.contains(menuResponse.variants.variant_groups[i].group_id.toInt())) {
-                    createRadioGroup(
-                        menuResponse.variants.variant_groups[i].variations,
-                        tv,
-                        excludedList.get(menuResponse.variants.variant_groups[i].group_id.toInt())
-                    )
-                } else {
-                    createCheckBox(
-                        menuResponse.variants.variant_groups[i].variations,
-                        tv,
-                        excludedList.get(menuResponse.variants.variant_groups[i].group_id.toInt())
-                    )
+            setAdapterData(menuResponse)
+        })
+    }
+
+    private fun fetchData() {
+        viewModel.getMenu()
+    }
+
+    private fun switchClick() {
+        vegSwitch.setOnCheckedChangeListener { buttonView, isChecked ->
+            setUpRecyclerView(isOnlyVeg = isChecked)
+            menuItemAdapter.setMenuItems(viewModel.menuResponse.value?.variants?.variant_groups!![viewModel.selectedVariants].variations)
+            menuItemAdapter.notifyDataSetChanged()
+        }
+    }
+
+    private fun changeClick() {
+        if (viewModel.selectedVariants > 0) {
+            menuItemChangeButton.visibility = View.VISIBLE
+            menuItemChangeButton.setOnClickListener { v ->
+                viewModel.selectedVariants = 0
+                viewModel.selectedVariation = null
+                fetchData()
+                setUpRecyclerView(vegSwitch.isChecked)
+                //setAdapterData(null)
+                changeClick()
+            }
+        } else {
+            menuItemChangeButton.visibility = View.GONE
+        }
+    }
+
+    private fun proceedClick() {
+        menuItemProceedButton.setOnClickListener { v ->
+            if (menuItemAdapter.getSelectedVariation() != null) {
+                viewModel.selectedVariants++
+                viewModel.selectedVariation = menuItemAdapter.getSelectedVariation()
+                changeClick()
+                setUpRecyclerView(vegSwitch.isChecked)
+                setAdapterData(null)
+            } else {
+                Toast.makeText(this, "Select any item.", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+    }
+
+    private fun setAdapterData(mR: MenuResponse?) {
+        val menuResponse: MenuResponse = mR ?: viewModel.menuResponse.value!!
+        menuResponse.let {
+            if(viewModel.selectedVariants < menuResponse.variants.variant_groups.size) {
+                menuItemTitle.text =
+                    menuResponse.variants.variant_groups[viewModel.selectedVariants].name
+                menuItemAdapter.setMenuItems(checkForExcludedItem(menuResponse.variants.variant_groups[viewModel.selectedVariants].variations))
+            }else{
+                btn_change.visibility = View.GONE
+                switch_veg.visibility = View.GONE
+                tv_menu_item_header.text = "Order Placed"
+                btn_proceed.visibility = View.GONE
+            }
+        }
+    }
+
+    private fun checkForExcludedItem(variationList: List<Variation>): List<Variation> {
+        if (viewModel.selectedVariation == null) {
+            return variationList
+        }
+
+
+        val menuResponse: MenuResponse = viewModel.menuResponse.value!!
+        val listType = object : TypeToken<ArrayList<ExcludeList>>() {}.type
+        var excludeList: ArrayList<ArrayList<ExcludeList>>? = ArrayList()
+
+        for (elementList in menuResponse.variants.exclude_list)
+            excludeList?.add(
+                Gson().fromJson<ArrayList<ExcludeList>>(
+                    elementList.toString(),
+                    listType
+                )
+            )
+
+        if (excludeList != null && excludeList.size > 0) {
+            for (excludeItemList in excludeList) {
+                for (i in 0 until excludeItemList.size) {
+                    if (excludeItemList[i].group_id.toInt() == viewModel.selectedVariants
+                        && excludeItemList[i].variation_id.toInt() == viewModel.selectedVariation!!.id.toInt()) {
+                        if(i != 1) {
+                            for (variationItem in variationList) {
+                                if (excludeItemList[i + 1].variation_id.toInt() == variationItem.id.toInt())
+                                    variationItem.isExcluded = true
+                            }
+                        }else{
+                            continue
+                        }
+                    }
                 }
             }
-        })
+        }
+
+
+        return variationList
     }
 
     private fun getDependencies() {
@@ -83,60 +182,5 @@ class MainActivity : AppCompatActivity() {
             .inject(this)
     }
 
-    private fun createExcludeList(jsonArray: List<List<ExcludeList>>) {
-        val listType = object : TypeToken<ArrayList<ExcludeList>>() {}.type
 
-        for (i in 0 until jsonArray.size) {
-            val excludeList = Gson().fromJson<ArrayList<ExcludeList>>(jsonArray[i].toString(), listType)
-            for (j in 0 until excludeList.size)
-                excludedList.put(excludeList[j].group_id.toInt(), excludeList[j].variation_id.toInt())
-        }
-    }
-
-    private fun createRadioGroup(
-        variation: List<Variation>,
-        tv: TextView,
-        excluded: MutableSet<Int>
-    ) {
-        val rb = arrayOfNulls<RadioButton>(variation.size)
-        val rg = RadioGroup(this) //create the RadioGroup
-        rg.orientation = RadioGroup.VERTICAL//or RadioGroup.VERTICAL
-        for (i in 0 until variation.size) {
-            rb[i] = RadioButton(this)
-            rb[i]!!.text = variation[i].name + " $" + variation[i].price
-            rb[i]!!.id = (i + 100)
-            if (excluded.contains(variation[i].id.toInt()))
-                rb[i]!!.paintFlags = STRIKE_THRU_TEXT_FLAG
-            if (vegSwitch.isChecked) {
-                if (variation[i].isVeg == 1) {
-                    rg.addView(rb[i])
-                }
-            } else {
-                rg.addView(rb[i])
-            }
-        }
-        linearLayout.addView(tv)
-        linearLayout.addView(rg)
-    }
-
-    private fun createCheckBox(
-        variation: List<Variation>,
-        tv: TextView,
-        excluded: MutableSet<Int>
-    ) {
-        linearLayout.addView(tv)
-        for (i in 0 until variation.size) {
-            val cb = CheckBox(this)
-            cb.text = variation[i].name + " $" + variation[i].price
-            if (excluded.contains(variation[i].id.toInt()))
-                cb.paintFlags = STRIKE_THRU_TEXT_FLAG
-            if (vegSwitch.isChecked) {
-                if (variation[i].isVeg == 1) {
-                    linearLayout.addView(cb)
-                }
-            } else {
-                linearLayout.addView(cb)
-            }
-        }
-    }
 }
